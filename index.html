@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Спринт-планировщик (с днями недели и кнопками +/– для часов)</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            max-width: 1200px;
+        }
+
+        h1 {
+            margin-bottom: 10px;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .controls>div {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="date"] {
+            padding: 5px;
+            box-sizing: border-box;
+            max-width: 250px;
+        }
+
+        button {
+            padding: 8px 15px;
+            cursor: pointer;
+        }
+
+        .tasks-list {
+            margin: 10px 0;
+        }
+
+        .tasks-list table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .tasks-list th,
+        .tasks-list td {
+            border: 1px solid #ccc;
+            padding: 6px;
+            text-align: left;
+            vertical-align: middle;
+        }
+
+        .tasks-list th {
+            background-color: #f7f7f7;
+        }
+
+        .task-actions {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        .hours-cell {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .hours-cell button {
+            padding: 3px 8px;
+            line-height: 1;
+        }
+
+        table.calendar {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        table.calendar th,
+        table.calendar td {
+            border: 1px solid #ccc;
+            padding: 6px;
+            text-align: center;
+            min-width: 60px;
+            vertical-align: middle;
+        }
+
+        table.calendar th {
+            background-color: #f7f7f7;
+        }
+
+        .task-cell {
+            background-color: #d5f5d5;
+        }
+
+        .empty-cell {
+            background-color: #f9f9f9;
+        }
+
+        .task-name {
+            font-weight: bold;
+            display: inline-block;
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Спринт-планировщик</h1>
+
+    <!-- Блок контролов для ввода данных спринта и задач -->
+    <div class="controls">
+        <!-- Ввод дат спринта -->
+        <div>
+            <label for="startDate">Дата начала:</label>
+            <input type="date" id="startDate" />
+
+            <label for="endDate">Дата окончания:</label>
+            <input type="date" id="endDate" />
+
+            <label for="dayHours">Рабочих часов в день:</label>
+            <input type="number" id="dayHours" min="1" max="24" value="7" />
+
+            <button onclick="planTasks()">Распланировать</button>
+        </div>
+
+        <!-- Добавление задачи -->
+        <div>
+            <label for="taskName">Название задачи:</label>
+            <input type="text" id="taskName" placeholder="Напр. «Сделать верстку»" />
+
+            <label for="taskHours">Часы:</label>
+            <input type="number" id="taskHours" placeholder="Напр. 5" />
+
+            <button onclick="addTask()">Добавить задачу</button>
+        </div>
+    </div>
+
+    <!-- Список задач (с возможностью редактирования, удаления, перестановки и инкремента/декремента часов) -->
+    <div class="tasks-list">
+        <strong>Список задач:</strong>
+        <div id="noTasksMsg">Пока нет задач</div>
+        <table id="tasksTable" style="display: none;">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>Часы</th>
+                </tr>
+            </thead>
+            <tbody id="tasksTbody"></tbody>
+        </table>
+    </div>
+
+    <!-- Контейнер для итогового календаря -->
+    <div id="calendarContainer"></div>
+
+    <script>
+        // Массив задач (объекты: {id, name, hours})
+        let tasks = [];
+        let taskIdCounter = 1;
+
+        // =============================================================================
+        // 1. Добавление задачи
+        // =============================================================================
+        function addTask() {
+            const nameInput = document.getElementById('taskName');
+            const hoursInput = document.getElementById('taskHours');
+
+            const nameVal = nameInput.value.trim();
+            const hoursVal = parseInt(hoursInput.value, 10);
+
+            if (!nameVal) {
+                alert('Введите название задачи');
+                return;
+            }
+            if (!hoursVal || hoursVal <= 0) {
+                alert('Введите положительное число часов');
+                return;
+            }
+
+            // Добавляем задачу
+            tasks.push({
+                id: taskIdCounter++,
+                name: nameVal,
+                hours: hoursVal
+            });
+
+            // Очищаем поля
+            nameInput.value = '';
+            hoursInput.value = '';
+
+            // Обновляем список
+            renderTasksList();
+        }
+
+        // =============================================================================
+        // 2. Рендер списка задач (таблица) c возможностью:
+        //    - перемещения (Вверх/Вниз)
+        //    - редактирования (название и часы)
+        //    - удаления
+        //    - инкремента/декремента часов
+        // =============================================================================
+        function renderTasksList() {
+            const noTasksMsg = document.getElementById('noTasksMsg');
+            const tasksTable = document.getElementById('tasksTable');
+            const tbody = document.getElementById('tasksTbody');
+
+            if (tasks.length === 0) {
+                // Если нет задач
+                noTasksMsg.style.display = 'block';
+                tasksTable.style.display = 'none';
+                return;
+            } else {
+                noTasksMsg.style.display = 'none';
+                tasksTable.style.display = 'table';
+            }
+
+            // Очищаем старые строки
+            tbody.innerHTML = '';
+
+            // Создаём строку для каждой задачи
+            // Порядок в массиве tasks — это и есть порядок выполнения
+            tasks.forEach((t, index) => {
+                const tr = document.createElement('tr');
+
+                // Название
+                const tdName = document.createElement('td');
+                tdName.textContent = t.name;
+                tr.appendChild(tdName);
+
+                // Часы (+ / - кнопки)
+                const tdHours = document.createElement('td');
+                tdHours.className = 'hours-cell';
+
+                // Текстовое поле / span
+                const hoursSpan = document.createElement('span');
+                hoursSpan.textContent = t.hours;
+
+                const incBtn = document.createElement('button');
+                incBtn.textContent = '+';
+                incBtn.onclick = () => incrementHours(t.id);
+
+                const decBtn = document.createElement('button');
+                decBtn.textContent = '-';
+                decBtn.onclick = () => decrementHours(t.id);
+
+                tdHours.appendChild(decBtn);
+                tdHours.appendChild(hoursSpan);
+                tdHours.appendChild(incBtn);
+
+                tr.appendChild(tdHours);
+
+                // Порядок (кнопки Вверх/Вниз)
+                const tdOrder = document.createElement('td');
+                tdOrder.className = 'task-actions';
+
+                const upBtn = document.createElement('button');
+                upBtn.textContent = '↑';
+                upBtn.disabled = (index === 0); // если самая первая, то вверх нельзя
+                upBtn.onclick = () => moveTaskUp(t.id);
+
+                const downBtn = document.createElement('button');
+                downBtn.textContent = '↓';
+                downBtn.disabled = (index === tasks.length - 1); // если последняя, то вниз нельзя
+                downBtn.onclick = () => moveTaskDown(t.id);
+
+                tdOrder.appendChild(upBtn);
+                tdOrder.appendChild(downBtn);
+                tr.appendChild(tdOrder);
+
+                // Действия (Редактировать/Удалить)
+                const tdActions = document.createElement('td');
+                tdActions.className = 'task-actions';
+
+                const editBtn = document.createElement('button');
+                editBtn.textContent = 'Редактировать';
+                editBtn.onclick = () => editTask(t.id);
+
+                const delBtn = document.createElement('button');
+                delBtn.textContent = 'Удалить';
+                delBtn.onclick = () => removeTask(t.id);
+
+                tdActions.appendChild(editBtn);
+                tdActions.appendChild(delBtn);
+                tr.appendChild(tdActions);
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 2a. Инкремент/декремент
+        function incrementHours(taskId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+            task.hours++;
+            renderTasksList();
+        }
+
+        function decrementHours(taskId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+            // Не даём уйти в 0 и ниже
+            if (task.hours > 1) {
+                task.hours--;
+                renderTasksList();
+            }
+        }
+
+        // =============================================================================
+        // 2b. Перемещение задачи ВВЕРХ
+        // =============================================================================
+        function moveTaskUp(taskId) {
+            const index = tasks.findIndex(t => t.id === taskId);
+            if (index > 0) {
+                const [removed] = tasks.splice(index, 1);
+                tasks.splice(index - 1, 0, removed);
+                renderTasksList();
+            }
+        }
+
+        // =============================================================================
+        // 2c. Перемещение задачи ВНИЗ
+        // =============================================================================
+        function moveTaskDown(taskId) {
+            const index = tasks.findIndex(t => t.id === taskId);
+            if (index < tasks.length - 1) {
+                const [removed] = tasks.splice(index, 1);
+                tasks.splice(index + 1, 0, removed);
+                renderTasksList();
+            }
+        }
+
+        // =============================================================================
+        // 3. Удаление задачи
+        // =============================================================================
+        function removeTask(taskId) {
+            tasks = tasks.filter(t => t.id !== taskId);
+            renderTasksList();
+        }
+
+        // =============================================================================
+        // 4. Редактирование задачи (названия и часов)
+        // =============================================================================
+        function editTask(taskId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+
+            const newName = prompt('Введите новое название задачи:', task.name);
+            if (newName === null) return;
+            const trimmedName = newName.trim();
+            if (!trimmedName) {
+                alert('Название не может быть пустым');
+                return;
+            }
+
+            const newHoursStr = prompt('Введите новое количество часов:', task.hours);
+            if (newHoursStr === null) return;
+            const newHours = parseInt(newHoursStr, 10);
+            if (!newHours || newHours <= 0) {
+                alert('Количество часов должно быть > 0');
+                return;
+            }
+
+            task.name = trimmedName;
+            task.hours = newHours;
+
+            renderTasksList();
+        }
+
+        // =============================================================================
+        // 5. Основная функция планирования
+        // =============================================================================
+        function planTasks() {
+            const startDateVal = document.getElementById('startDate').value;
+            const endDateVal = document.getElementById('endDate').value;
+            const dayHoursVal = parseInt(document.getElementById('dayHours').value, 10);
+
+            if (!startDateVal || !endDateVal) {
+                alert('Укажите дату начала и дату окончания спринта');
+                return;
+            }
+            if (!dayHoursVal || dayHoursVal < 1 || dayHoursVal > 24) {
+                alert('Количество часов в рабочем дне должно быть в диапазоне 1..24');
+                return;
+            }
+
+            const startDate = new Date(startDateVal);
+            const endDate = new Date(endDateVal);
+
+            if (startDate > endDate) {
+                alert('Дата начала не может быть больше даты окончания');
+                return;
+            }
+
+            if (tasks.length === 0) {
+                alert('Добавьте хотя бы одну задачу');
+                return;
+            }
+
+            // Формируем список "рабочих" дней, пропуская субботу(6) и воскресенье(0)
+            const dateRange = [];
+            let currentDate = new Date(startDate);
+            while (currentDate <= endDate) {
+                const dayOfWeek = currentDate.getDay(); // 0=воскресенье, 6=суббота
+                if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                    dateRange.push(new Date(currentDate));
+                }
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+
+            // schedule: список, где каждый элемент = {date, tasks:[]}
+            const schedule = dateRange.map(date => {
+                return {
+                    date,
+                    tasks: []
+                };
+            });
+
+            let currentDayIndex = 0;
+            let remainingHoursInDay = dayHoursVal;
+
+            // Идём по задачам в том порядке, который указан в массиве tasks
+            for (let i = 0; i < tasks.length; i++) {
+                const task = tasks[i];
+                let taskHoursLeft = task.hours;
+
+                while (taskHoursLeft > 0 && currentDayIndex < schedule.length) {
+                    if (taskHoursLeft > remainingHoursInDay) {
+                        // Заполняем текущий день полностью
+                        const startHour = dayHoursVal - remainingHoursInDay;
+                        const endHour = dayHoursVal;
+
+                        schedule[currentDayIndex].tasks.push({
+                            taskId: task.id,
+                            taskName: task.name,
+                            startHour,
+                            endHour
+                        });
+
+                        taskHoursLeft -= remainingHoursInDay;
+                        currentDayIndex++;
+                        remainingHoursInDay = dayHoursVal;
+                    } else {
+                        // Задача уместится в текущем дне
+                        const startHour = dayHoursVal - remainingHoursInDay;
+                        const endHour = startHour + taskHoursLeft;
+
+                        schedule[currentDayIndex].tasks.push({
+                            taskId: task.id,
+                            taskName: task.name,
+                            startHour,
+                            endHour
+                        });
+
+                        remainingHoursInDay -= taskHoursLeft;
+                        taskHoursLeft = 0;
+                    }
+                }
+            }
+
+            renderCalendar(schedule, dayHoursVal);
+        }
+
+        // =============================================================================
+        // 6. Визуализация календаря: табличка
+        //    - Показываем дату + день недели
+        // =============================================================================
+        function renderCalendar(schedule, dayHours) {
+            const container = document.getElementById('calendarContainer');
+            container.innerHTML = ''; // очистить
+
+            if (schedule.length === 0) {
+                container.innerHTML = '<p>Нет рабочих дней в заданном диапазоне (либо сплошные выходные).</p>';
+                return;
+            }
+
+            // Создаём таблицу
+            const table = document.createElement('table');
+            table.className = 'calendar';
+            const thead = document.createElement('thead');
+            const tbody = document.createElement('tbody');
+
+            // Для удобства (короткие обозначения): Вс, Пн, Вт, Ср, Чт, Пт, Сб
+            const weekdayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+            // Шапка: колонка "Часы", затем — дата + (день недели)
+            const headerRow = document.createElement('tr');
+            const hoursTh = document.createElement('th');
+            hoursTh.textContent = 'Часы';
+            headerRow.appendChild(hoursTh);
+
+            schedule.forEach(dayItem => {
+                const dateTh = document.createElement('th');
+                const d = dayItem.date;
+                const day = String(d.getDate()).padStart(2, '0');
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const year = d.getFullYear();
+                const dayOfWeekIndex = d.getDay(); // 0..6
+                const dayOfWeekStr = weekdayNames[dayOfWeekIndex];
+
+                // Пример: "01.01.2024 (Пн)"
+                dateTh.textContent = `${day}.${month}.${year} (${dayOfWeekStr})`;
+                headerRow.appendChild(dateTh);
+            });
+
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            // Тело: строки по количеству часов
+            for (let hour = 0; hour < dayHours; hour++) {
+                const row = document.createElement('tr');
+
+                // Ячейка — час
+                const hourTd = document.createElement('td');
+                hourTd.textContent = `${hour}–${hour + 1}`;
+                row.appendChild(hourTd);
+
+                // Ячейки по дням
+                schedule.forEach(dayItem => {
+                    const cell = document.createElement('td');
+
+                    // Ищем задачу, которая занимает текущий час
+                    const taskInThisHour = dayItem.tasks.find(
+                        t => hour >= t.startHour && hour < t.endHour
+                    );
+
+                    if (taskInThisHour) {
+                        cell.classList.add('task-cell');
+                        cell.innerHTML = `<span class="task-name">${taskInThisHour.taskName}</span>`;
+                    } else {
+                        cell.classList.add('empty-cell');
+                    }
+
+                    row.appendChild(cell);
+                });
+
+                tbody.appendChild(row);
+            }
+
+            table.appendChild(tbody);
+            container.appendChild(table);
+        }
+
+        // =============================================================================
+        // 7. Инициализация при загрузке
+        // =============================================================================
+        window.onload = () => {
+            renderTasksList(); // отобразим (пока пустой) список
+        };
+    </script>
+</body>
+
+</html>
