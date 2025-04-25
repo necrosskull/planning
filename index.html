@@ -157,6 +157,46 @@
             font-weight: bold;
             color: #e53935;
         }
+        
+        #importExportArea {
+            width: 100%;
+            height: 150px;
+            margin-top: 10px;
+            display: none;
+            font-family: monospace;
+            padding: 8px;
+            font-size: 12px;
+        }
+        
+        .import-export-dialog {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .dialog-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            width: 80%;
+            max-width: 600px;
+            max-height: 80%;
+            overflow: auto;
+        }
+        
+        .dialog-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 15px;
+        }
     </style>
 </head>
 
@@ -189,6 +229,12 @@
             </div>
 
             <button onclick="planTasks()">Распланировать</button>
+            
+            <!-- Кнопки экспорта и импорта -->
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <button onclick="exportData()">Экспорт данных</button>
+                <button onclick="importData()">Импорт данных</button>
+            </div>
         </div>
 
         <!-- Добавление задачи -->
@@ -222,6 +268,32 @@
 
     <!-- Контейнер для итогового календаря -->
     <div id="calendarContainer"></div>
+    
+    <!-- Диалог экспорта данных -->
+    <div id="exportDialog" class="import-export-dialog">
+        <div class="dialog-content">
+            <h3>Экспорт данных</h3>
+            <p>Скопируйте этот JSON для последующего импорта:</p>
+            <textarea id="exportArea" readonly style="width: 100%; height: 200px; margin-top: 10px;"></textarea>
+            <div class="dialog-buttons">
+                <button id="copyExportBtn">Копировать</button>
+                <button onclick="closeExportDialog()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Диалог импорта данных -->
+    <div id="importDialog" class="import-export-dialog">
+        <div class="dialog-content">
+            <h3>Импорт данных</h3>
+            <p>Вставьте сохраненный ранее JSON:</p>
+            <textarea id="importArea" style="width: 100%; height: 200px; margin-top: 10px;"></textarea>
+            <div class="dialog-buttons">
+                <button id="doImportBtn">Импортировать</button>
+                <button onclick="closeImportDialog()">Отмена</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         // Массив задач (объекты: {id, name, hours})
@@ -759,11 +831,114 @@
         }
 
         // =============================================================================
-        // 10. Инициализация при загрузке
+        // 10. Функции экспорта и импорта
+        // =============================================================================
+        function exportData() {
+            // Собираем все данные проекта
+            const exportData = {
+                tasks: tasks,
+                holidays: holidays,
+                settings: {
+                    startDate: document.getElementById('startDate').value,
+                    endDate: document.getElementById('endDate').value,
+                    dayHours: document.getElementById('dayHours').value
+                },
+                version: "1.0" // для возможности проверки версии при импорте
+            };
+            
+            // Конвертируем в JSON
+            const jsonData = JSON.stringify(exportData, null, 2);
+            
+            // Отображаем диалог экспорта
+            document.getElementById('exportArea').value = jsonData;
+            document.getElementById('exportDialog').style.display = 'flex';
+        }
+        
+        function closeExportDialog() {
+            document.getElementById('exportDialog').style.display = 'none';
+        }
+        
+        function importData() {
+            // Отображаем диалог импорта
+            document.getElementById('importDialog').style.display = 'flex';
+        }
+        
+        function closeImportDialog() {
+            document.getElementById('importDialog').style.display = 'none';
+        }
+        
+        function processImport() {
+            try {
+                const jsonText = document.getElementById('importArea').value;
+                if (!jsonText.trim()) {
+                    alert('Пожалуйста, вставьте данные для импорта');
+                    return;
+                }
+                
+                // Парсим JSON
+                const importedData = JSON.parse(jsonText);
+                
+                // Проверяем версию и структуру
+                if (!importedData.version || !importedData.tasks) {
+                    alert('Некорректный формат данных');
+                    return;
+                }
+                
+                // Загружаем задачи
+                tasks = importedData.tasks;
+                
+                // Загружаем выходные
+                holidays = importedData.holidays || [];
+                
+                // Загружаем настройки, если они есть
+                if (importedData.settings) {
+                    if (importedData.settings.startDate) {
+                        document.getElementById('startDate').value = importedData.settings.startDate;
+                    }
+                    if (importedData.settings.endDate) {
+                        document.getElementById('endDate').value = importedData.settings.endDate;
+                    }
+                    if (importedData.settings.dayHours) {
+                        document.getElementById('dayHours').value = importedData.settings.dayHours;
+                    }
+                }
+                
+                // Обновляем счетчик ID, чтобы избежать дубликатов
+                if (tasks.length > 0) {
+                    const maxId = Math.max(...tasks.map(t => t.id));
+                    taskIdCounter = maxId + 1;
+                }
+                
+                // Обновляем отображение
+                renderTasksList();
+                renderHolidays();
+                
+                // Закрываем диалог
+                closeImportDialog();
+                
+                alert('Данные успешно импортированы!');
+            } catch (error) {
+                alert('Ошибка при импорте данных: ' + error.message);
+            }
+        }
+        
+        function copyToClipboard() {
+            const exportArea = document.getElementById('exportArea');
+            exportArea.select();
+            document.execCommand('copy');
+            alert('JSON скопирован в буфер обмена!');
+        }
+
+        // =============================================================================
+        // 11. Инициализация при загрузке
         // =============================================================================
         window.onload = () => {
             renderTasksList(); // отобразим (пока пустой) список
             renderHolidays(); // отобразим (пока пустой) список выходных
+            
+            // Добавляем обработчики событий для диалогов
+            document.getElementById('copyExportBtn').addEventListener('click', copyToClipboard);
+            document.getElementById('doImportBtn').addEventListener('click', processImport);
         };
     </script>
 </body>
